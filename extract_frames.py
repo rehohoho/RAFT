@@ -36,21 +36,23 @@ class InferenceLoader(data.Dataset):
         print("Found total of %s images" %len(images))
 
         output_paths = [fn.replace(args.path, args.output_path) for fn in images]
-        self.image_list = []
+        self.image_list = list(zip(images[:-1], images[1:], output_paths))
 
-        for img1, img2, output_path in zip(images[:-1], images[1:], output_paths):
-            if self.skip_image(img1, img2, output_path): continue
-            self.image_list.append([img1, img2, output_path])
+        if args.start is not None and args.end is not None:
+            self.image_list = self.image_list[args.start:args.end]
+            print("Running starting from image %s to %s" %(args.start, args.end))
         
+        self.image_list = [i for i in self.image_list if not self.skip_image(*i)]
         print("%s images left to run" %len(self.image_list))
 
     def __getitem__(self, index):
         img1 = frame_utils.read_gen(self.image_list[index][0])
         img2 = frame_utils.read_gen(self.image_list[index][1])
         
-        w, h = img1.size
-        img1 = img1.resize((int(w/2), int(h/2)))
-        img2 = img2.resize((int(w/2), int(h/2)))
+        # Resizing to test on local machine with smaller memory
+        # w, h = img1.size
+        # img1 = img1.resize((int(w/2), int(h/2)))
+        # img2 = img2.resize((int(w/2), int(h/2)))
         
         img1 = np.array(img1).astype(np.uint8)
         img2 = np.array(img2).astype(np.uint8)
@@ -87,7 +89,11 @@ def viz(imgs, flos, output_paths, batch_size):
 
 
 def demo(args):
-    model = torch.nn.DataParallel(RAFT(args))
+    device_id = None
+    if args.device is not None:
+        device_id = args.device.split(",")[-1]
+    
+    model = torch.nn.DataParallel(RAFT(args), device_ids=[device_id])
     model.load_state_dict(torch.load(args.model))
 
     model = model.module
@@ -120,17 +126,22 @@ if __name__ == '__main__':
     parser.add_argument('--model', required=True, help="restore checkpoint")
     parser.add_argument('--path', required=True, help="dataset for evaluation")
     parser.add_argument('--output_path', required=True, help="output directory for flow")
+    parser.add_argument('--start', type=int, help="idx of file to start with")
+    parser.add_argument('--end', type=int, help="idx of file to end with")
     
     parser.add_argument('--small', action='store_true', help='use small model')
     parser.add_argument('--mixed_precision', action='store_true', help='use mixed precision')
     parser.add_argument('--alternate_corr', action='store_true', help='use efficent correlation implementation')
     parser.add_argument('--vis', action='store_true', help='visualise the optical flow')
     
-    parser.add_argument('--device', help='device name, default: cuda', default="cuda")
+    parser.add_argument('--device', help='device name, default: cuda', default=None)
     parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--workers', help='number of cpu workers to load images', type=int, default=2)
     args = parser.parse_args()
 
-    DEVICE = args.device
-
+    if args.device is None:
+        DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    else:
+        DEVICE = torch.device(args.device)
+    
     demo(args)
