@@ -1,8 +1,10 @@
 python extract_frames.py \
     --model='models/raft-things.pth' \
     --path='D:/data/pose_detection_sample/kinect' \
-    --output_path='D:/data/pose_detection_sample/kinectflows' \
+    --flow_output_path='D:/data/pose_detection_sample/kinectflows' \
+    --rgb_output_path='D:/data/pose_detection_sample/kinectrgbs' \
     --batch_size=1 \
     --workers=4 \
-    --resize=2 \
-    --orig_size="1080,1920"
+    --center_crop=224 \
+    --start=1100 \
+    --end=1159

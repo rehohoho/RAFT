@@ -6,15 +6,17 @@ import os
 import os.path as osp
 import cv2
 from glob import glob
+
+from PIL import Image
 import numpy as np
 import torch
-from PIL import Image
+import torch.utils.data as data
+from torchvision.transforms import CenterCrop
 
 from raft import RAFT
 from utils import flow_viz
 from utils.utils import InputPadder
 from utils import frame_utils
-import torch.utils.data as data
 
 
 class InferenceLoader(data.Dataset):
@@ -36,8 +38,10 @@ class InferenceLoader(data.Dataset):
         print("Found total of %s images" %len(images))
 
         self.resize = args.resize
+        if args.center_crop is not None:
+            self.center_crop = CenterCrop(args.center_crop)
 
-        output_paths = [fn.replace(args.path, args.output_path) for fn in images]
+        output_paths = [fn.replace(args.path, args.flow_output_path) for fn in images]
         self.image_list = list(zip(images[:-1], images[1:], output_paths))
 
         if args.start is not None and args.end is not None:
@@ -57,6 +61,10 @@ class InferenceLoader(data.Dataset):
             img1 = img1.resize((int(w/self.resize), int(h/self.resize)))
             img2 = img2.resize((int(w/self.resize), int(h/self.resize)))
         
+        if self.center_crop is not None:
+            img1 = self.center_crop(img1)
+            img2 = self.center_crop(img2)
+        
         img1 = np.array(img1).astype(np.uint8)
         img2 = np.array(img2).astype(np.uint8)
         img1 = torch.from_numpy(img1).permute(2, 0, 1).float()
@@ -67,11 +75,11 @@ class InferenceLoader(data.Dataset):
         return len(self.image_list)
 
 
-def viz(imgs, flos, output_paths, batch_size):
+def viz(imgs, flos, output_paths, args):
     imgs = imgs.permute(0,2,3,1).cpu().numpy()
     flos = flos.permute(0,2,3,1).cpu().numpy()
 
-    for i in range(batch_size):
+    for i in range(args.batch_size):
         img = imgs[i].squeeze()
         flo = flos[i].squeeze()
         output_path = output_paths[i]
@@ -81,6 +89,12 @@ def viz(imgs, flos, output_paths, batch_size):
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
         
+        if args.rgb_output_path is not None:
+            rgb_path_noext = output_path_noext.replace(args.flow_output_path, args.rgb_output_path)
+            rgb_dir = os.path.dirname(rgb_path_noext)
+            if not os.path.exists(rgb_dir):
+                os.makedirs(rgb_dir)
+        
         if args.vis:
             flo = flow_viz.flow_to_image(flo)
             img_flo = np.concatenate([img, flo], axis=0)[:, :, [2,1,0]]
@@ -88,6 +102,9 @@ def viz(imgs, flos, output_paths, batch_size):
         else:
             cv2.imwrite(output_path_noext + 'x.jpg', flo[:, :, 0])
             cv2.imwrite(output_path_noext + 'y.jpg', flo[:, :, 1])
+            if args.rgb_output_path is not None:
+                cv2.imwrite(rgb_path_noext + '.jpg', img[:, :, ::-1])
+
         print("Done %s" %output_path_noext)
 
 
@@ -125,19 +142,21 @@ def demo(args):
                 image1 = torch.nn.functional.interpolate(image1, size=args.orig_size, mode='bilinear', align_corners=True)
                 flow_up = torch.nn.functional.interpolate(flow_up, size=args.orig_size, mode='bilinear', align_corners=True)
             
-            viz(image1, flow_up, output_path, args.batch_size)
+            viz(image1, flow_up, output_path, args)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', required=True, help="restore checkpoint")
     parser.add_argument('--path', required=True, help="dataset for evaluation")
-    parser.add_argument('--output_path', required=True, help="output directory for flow")
+    parser.add_argument('--flow_output_path', required=True, help="output directory for flow")
+    parser.add_argument('--rgb_output_path', required=True, help="output directory for rgb")
     
     parser.add_argument('--start', type=int, help="idx of file to start with")
     parser.add_argument('--end', type=int, help="idx of file to end with")
     parser.add_argument('--resize', type=int, help="down and upsampling factor for smaller model")
     parser.add_argument('--orig_size', help="down and upsampling factor for smaller model")
+    parser.add_argument('--center_crop', type=int, help="center crop for smaller model")
     
     parser.add_argument('--small', action='store_true', help='use small model')
     parser.add_argument('--mixed_precision', action='store_true', help='use mixed precision')
