@@ -35,6 +35,8 @@ class InferenceLoader(data.Dataset):
         images = sorted(images)
         print("Found total of %s images" %len(images))
 
+        self.resize = args.resize
+
         output_paths = [fn.replace(args.path, args.output_path) for fn in images]
         self.image_list = list(zip(images[:-1], images[1:], output_paths))
 
@@ -50,9 +52,10 @@ class InferenceLoader(data.Dataset):
         img2 = frame_utils.read_gen(self.image_list[index][1])
         
         # Resizing to test on local machine with smaller memory
-        # w, h = img1.size
-        # img1 = img1.resize((int(w/2), int(h/2)))
-        # img2 = img2.resize((int(w/2), int(h/2)))
+        if self.resize is not None:
+            w, h = img1.size
+            img1 = img1.resize((int(w/self.resize), int(h/self.resize)))
+            img2 = img2.resize((int(w/self.resize), int(h/self.resize)))
         
         img1 = np.array(img1).astype(np.uint8)
         img2 = np.array(img2).astype(np.uint8)
@@ -118,6 +121,10 @@ def demo(args):
             image1, image2 = padder.pad(image1, image2)
 
             flow_low, flow_up = model(image1, image2, iters=20, test_mode=True)
+            if args.resize is not None:
+                image1 = torch.nn.functional.interpolate(image1, size=args.orig_size, mode='bilinear', align_corners=True)
+                flow_up = torch.nn.functional.interpolate(flow_up, size=args.orig_size, mode='bilinear', align_corners=True)
+            
             viz(image1, flow_up, output_path, args.batch_size)
 
 
@@ -126,8 +133,11 @@ if __name__ == '__main__':
     parser.add_argument('--model', required=True, help="restore checkpoint")
     parser.add_argument('--path', required=True, help="dataset for evaluation")
     parser.add_argument('--output_path', required=True, help="output directory for flow")
+    
     parser.add_argument('--start', type=int, help="idx of file to start with")
     parser.add_argument('--end', type=int, help="idx of file to end with")
+    parser.add_argument('--resize', type=int, help="down and upsampling factor for smaller model")
+    parser.add_argument('--orig_size', help="down and upsampling factor for smaller model")
     
     parser.add_argument('--small', action='store_true', help='use small model')
     parser.add_argument('--mixed_precision', action='store_true', help='use mixed precision')
@@ -143,5 +153,9 @@ if __name__ == '__main__':
         DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     else:
         DEVICE = torch.device(args.device)
+    
+    if args.orig_size is not None:
+        args.orig_size = [int(i) for i in args.orig_size.split(",")]
+        args.orig_size = (args.orig_size[0], args.orig_size[1])
     
     demo(args)
