@@ -131,8 +131,8 @@ def demo(args):
 
     with torch.no_grad():
         for image1, image2, output_path in dataloader:
-            image1 = image1[None].cuda().squeeze(dim=0)
-            image2 = image2[None].cuda().squeeze(dim=0)
+            image1 = image1[None].to(DEVICE).squeeze(dim=0)
+            image2 = image2[None].to(DEVICE).squeeze(dim=0)
 
             padder = InputPadder(image1.shape)
             image1, image2 = padder.pad(image1, image2)
